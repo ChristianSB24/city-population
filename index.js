@@ -1,30 +1,40 @@
-const fastify = require('fastify')();
+const http = require('http');
 
-const db = require('./database')
+const db = require('./database');
 const routes = require('./routes');
 
 const PORT = 5555;
 
 const rows = db.prepare('SELECT * FROM cities').all();
 
-// Set population data in-memory for fast retrieval
-const populationData = {};
+global.populationData = {};
 for (const item of rows) {
   const { state, city, population } = item;
-  if (!populationData[state]) {
-    populationData[state] = {};
+  if (!global.populationData[state]) {
+    global.populationData[state] = {};
   }
-  populationData[state][city] = population;
+  global.populationData[state][city] = population;
 }
 
-// Register routes with populationData as an option
-fastify.register(routes, { populationData });
-
-// Start the server
-fastify.listen({port: PORT}, (err) => {
-    if (err) {
-        console.error(err);
-        process.exit(1);
-    }
-    console.log(`Server is running on http://localhost:${PORT}`);
+const server = new http.Server({
+  maxConnections: 5000,
+  keepAliveTimeout: 5000,
+  headersTimeout: 30000
 });
+
+// Create an HTTP server
+server.on('request', (req, res) => {
+  // Route requests based on the URL path
+  if (req.method === 'GET' && req.url.startsWith('/api/population/state/')) {
+    routes.getPopulation(req, res);
+  } else if (req.method === 'PUT' && req.url.startsWith('/api/population/state/')) {
+    routes.updatePopulation(req, res);
+  } else {
+    res.statusCode = 404;
+    res.end('Not Found');
+  }
+});
+
+server.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+})
