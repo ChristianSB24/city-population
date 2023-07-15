@@ -1,17 +1,21 @@
 const fastify = require('fastify')();
-const fs = require('fs');
 
-const { parseCSV, convertCSVtoPopulationData } = require('./helpers');
+const db = require('./database')
 const routes = require('./routes');
 
 const PORT = 5555;
 
-const fileData = fs.readFileSync('city_populations.csv', 'utf8');
-
-const parsedData = parseCSV(fileData)
+const rows = db.prepare('SELECT * FROM cities').all();
 
 // Set population data in-memory for fast retrieval
-const populationData = convertCSVtoPopulationData(parsedData)
+const populationData = {};
+for (const item of rows) {
+  const { state, city, population } = item;
+  if (!populationData[state]) {
+    populationData[state] = {};
+  }
+  populationData[state][city] = population;
+}
 
 // Register routes with populationData as an option
 fastify.register(routes, { populationData });
