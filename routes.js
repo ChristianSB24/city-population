@@ -1,103 +1,58 @@
-const db = require('./database');
+const { analyzePopulationData, updateDatabase, sendResponse } = require('./helpers')
 
-const _updateDatabase = (sql, values) => {
-    return new Promise((resolve, reject) => {
-        try {
-            db.prepare(sql).run(values)
-            return resolve()
-        } catch (err) {
-            return reject(err)
-        }
-    })
-}
+const getPopulation = (req, res, params) => {
+    const lowerCaseState = params.state.toLowerCase()
+    const lowerCaseCity = params.city.toLowerCase()
 
-const _getLowerCaseStateAndCity = (url) => {
-    const match = /^\/api\/population\/state\/([^/]+)\/city\/([^/]+)$/.exec(url);
-    return {lowerCaseState: match[1].toLowerCase(), lowerCaseCity: match[2].toLowerCase()}
-}
-
-const getPopulation = (req, res) => {
-    const { url } = req;
-    const {lowerCaseState, lowerCaseCity} = _getLowerCaseStateAndCity(url)
-
-    if (!global.populationData[lowerCaseState] || !global.populationData[lowerCaseState][lowerCaseCity]) {
-        res.statusCode = 400;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: 'Population data not found for the specified state and city.' }));
+    if (global.populationData[lowerCaseState] && global.populationData[lowerCaseState][lowerCaseCity]) {
+        return sendResponse(res, 200, { population: global.populationData[lowerCaseState][lowerCaseCity] })
     } else {
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ population: global.populationData[lowerCaseState][lowerCaseCity] }));
+        return sendResponse(res, 400, { error: 'Population data not found for the specified state and city.' })
     }
 }
 
-const updatePopulation = (req, res) => {
-    const { url } = req;
-    const {lowerCaseState, lowerCaseCity} = _getLowerCaseStateAndCity(url)
-
+const updatePopulation = (req, res, params) => {
     let body = [];
     req.on('data', (chunk) => {
         body.push(chunk);
-    }).on('end', () => {
+    }).on('end', async () => {
         body = Buffer.concat(body).toString();
+        const lowerCaseState = params.state.toLowerCase()
+        const lowerCaseCity = params.city.toLowerCase()
 
-        const newPopulation = parseInt(body);
-        
+        const newPopulation = Number.parseInt(body, 10);
+
         if (isNaN(newPopulation) || newPopulation < 0) {
-            res.statusCode = 400;
-            return res.end(JSON.stringify({ error: 'Invalid population value. Please provide a valid non-negative number.' }));
+            return sendResponse(res, 400, { error: 'Invalid population value. Please provide a valid non-negative number.' })
         }
 
-        let isNewState = false;
-        let isNewCity = false;
-        let oldPopulation;
-        
-        if (!global.populationData[lowerCaseState]) {
-            isNewState = true;
-            global.populationData[lowerCaseState] = {};
-        }
-        
-        if (!global.populationData[lowerCaseState][lowerCaseCity]) {
-            isNewCity = true
-        } else {
-            oldPopulation = global.populationData[lowerCaseState][lowerCaseCity]
-        }
-        
+        const { isNewState, isNewCity, oldPopulation } = analyzePopulationData(lowerCaseState, lowerCaseCity)
+
         // Return immediately if the population is the same
         if (oldPopulation === newPopulation) {
-            res.statusCode = 200;
-            return res.end();
+            return sendResponse(res, 200)
         }
-        
-        // If new population then update in-memory data and then update database
-        global.populationData[lowerCaseState][lowerCaseCity] = newPopulation;
 
+        const sql = isNewCity ?
+            'INSERT INTO cities VALUES ($city, $state, $population)' :
+            'UPDATE cities SET population = $population WHERE state = $state AND city = $city'
         try {
-            // To squeeze a bit more performance I use a write-behind caching strategy
-            // where the cache is updated immediately but the database is updated after
-            // a set amount of time. Since it is a promise and I don't await it, execution of the
-            // code will continue and the update happens in the background.
-            if (isNewCity) {
-                _updateDatabase('INSERT INTO cities VALUES ($state, $city, $population)', {state: lowerCaseState, city: lowerCaseCity, population: newPopulation})
-            } else {
-                _updateDatabase('UPDATE cities SET population = $population WHERE state = $state AND city = $city', {state: lowerCaseState, city: lowerCaseCity, population: newPopulation})
-            }
-
-            res.statusCode = isNewCity ? 201 : 200;
-            return res.end();
+            // Update cache and then immediately after update the database
+            // This is done since the cache is the primary data store
+            global.populationData[lowerCaseState][lowerCaseCity] = newPopulation
+            await updateDatabase(sql, { city: lowerCaseCity, state: lowerCaseState, population: newPopulation })
         } catch (err) {
-            console.error('err', err)
-            // Clear cache of data that wasn't able to be inserted into database
+            // Rollback changes to the cache
             if (isNewCity) {
                 delete global.populationData[lowerCaseState][lowerCaseCity]
                 if (isNewState) delete global.populationData[lowerCaseState]
             } else {
-                global.populationData[lowerCaseState][city] = oldPopulation
+                global.populationData[lowerCaseState][lowerCaseCity] = oldPopulation
             }
-
-            res.statusCode = 500;
-            return res.end(JSON.stringify({ error: 'Internal Server Error' }));
+            return sendResponse(res, 400, { error: 'Bad request' })
         }
+
+        return sendResponse(res, isNewCity ? 201 : 200)
     });
 }
 
