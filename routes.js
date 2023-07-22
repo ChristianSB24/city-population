@@ -1,11 +1,13 @@
+const cache = require('./cacheManager')
 const { analyzePopulationData, updateDatabase, sendResponse } = require('./helpers')
 
 const getPopulation = (req, res, params) => {
     const lowerCaseState = params.state.toLowerCase()
     const lowerCaseCity = params.city.toLowerCase()
+    // const city = cache.get(`${lowerCaseState}-${lowerCaseCity}`);
 
-    if (global.populationData[lowerCaseState] && global.populationData[lowerCaseState][lowerCaseCity]) {
-        return sendResponse(res, 200, { population: global.populationData[lowerCaseState][lowerCaseCity] })
+    if (true) {
+        return sendResponse(res, 200, { population: 'test' })
     } else {
         return sendResponse(res, 400, { error: 'Population data not found for the specified state and city.' })
     }

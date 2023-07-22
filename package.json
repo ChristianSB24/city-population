@@ -12,6 +12,7 @@
   "author": "Christian Saldana",
   "license": "ISC",
   "dependencies": {
-    "better-sqlite3": "^8.4.0"
+    "better-sqlite3": "^8.4.0",
+    "node-cache": "^5.1.2"
   }
 }
