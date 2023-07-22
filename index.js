@@ -1,4 +1,4 @@
-const http = require('http');
+const fastify = require('fastify')();
 const cluster = require('cluster')
 const os = require('os')
 
@@ -22,13 +22,6 @@ for (const item of rows) {
   cache.set(`${state}-${city}`, obj, 10000);
 }
 
-// Opted to use a custom server since it is faster than any REST framework, including Fastify.
-const server = new http.Server({
-  maxConnections: 5000,
-  keepAliveTimeout: 5000,
-  headersTimeout: 30000
-});
-
 if (cluster.isMaster) {
   for (let i = 0; i < workers; i++) {
     cluster.fork()
@@ -39,22 +32,15 @@ if (cluster.isMaster) {
     cluster.fork()
   })
 } else {
-  server.on('request', (req, res) => {
-    const { url } = req
+  // Register routes with populationData as an option
+  fastify.register(routes);
 
-    const match = /^\/api\/population\/state\/([^/]+)\/city\/([^/]+)$/.exec(url);
-    const params = { state: decodeURIComponent(match?.[1]), city: decodeURIComponent(match?.[2]) }
-    if (req.method === 'GET' && match) {
-      routes.getPopulation(req, res, params);
-    } else if (req.method === 'PUT' && match) {
-      routes.updatePopulation(req, res, params);
-    } else {
-      res.statusCode = 404;
-      res.end('Not Found');
+  // Start the server
+  fastify.listen({ port: PORT }, (err) => {
+    if (err) {
+      console.error(err);
+      process.exit(1);
     }
-  });
-
-  server.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
-  })
+  });
 }

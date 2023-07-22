@@ -1,38 +1,34 @@
 const cache = require('./cacheManager')
 const { analyzePopulationData, updateDatabase, sendResponse } = require('./helpers')
 
-const getPopulation = (req, res, params) => {
-    const lowerCaseState = params.state.toLowerCase()
-    const lowerCaseCity = params.city.toLowerCase()
-    // const city = cache.get(`${lowerCaseState}-${lowerCaseCity}`);
+const routes = async (fastify) => {
+    fastify.get('/api/population/state/:state/city/:city', (request, reply) => {
+        const lowerCaseState = request.params.state.toLowerCase()
+        const lowerCaseCity = request.params.city.toLowerCase()
+        // const city = cache.get(`${lowerCaseState}-${lowerCaseCity}`);
 
-    if (true) {
-        return sendResponse(res, 200, { population: 'test' })
-    } else {
-        return sendResponse(res, 400, { error: 'Population data not found for the specified state and city.' })
-    }
-}
+        if (true) {
+            reply.status(200).send({ population: 'test' });
+        } else {
+            reply.status(400).send({ error: 'Population data not found for the specified state and city.' });
+        }
+    });
 
-const updatePopulation = (req, res, params) => {
-    let body = [];
-    req.on('data', (chunk) => {
-        body.push(chunk);
-    }).on('end', async () => {
-        body = Buffer.concat(body).toString();
+    fastify.put('/api/population/state/:state/city/:city', async (request, reply) => {
         const lowerCaseState = params.state.toLowerCase()
         const lowerCaseCity = params.city.toLowerCase()
 
         const newPopulation = Number.parseInt(body, 10);
 
         if (isNaN(newPopulation) || newPopulation < 0) {
-            return sendResponse(res, 400, { error: 'Invalid population value. Please provide a valid non-negative number.' })
+            return reply.status(400).send({ error: 'Invalid population value. Please provide a valid non-negative number.' });
         }
 
         const { isNewState, isNewCity, oldPopulation } = analyzePopulationData(lowerCaseState, lowerCaseCity)
 
         // Return immediately if the population is the same
         if (oldPopulation === newPopulation) {
-            return sendResponse(res, 200)
+            return reply.status(200).send();
         }
 
         const sql = isNewCity ?
@@ -51,11 +47,10 @@ const updatePopulation = (req, res, params) => {
             } else {
                 global.populationData[lowerCaseState][lowerCaseCity] = oldPopulation
             }
-            return sendResponse(res, 400, { error: 'Bad request' })
+            return reply.status(400).send({ error: 'Bad request' });
         }
-
-        return sendResponse(res, isNewCity ? 201 : 200)
+        return reply.status(isNewCity ? 201 : 200).send();
     });
-}
+};
 
-module.exports = { getPopulation, updatePopulation };
+module.exports = routes;
